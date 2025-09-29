@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-import pandas as pd
+import pandas as pd # type: ignore
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
@@ -47,7 +47,7 @@ for file in [
         print(f"Required file {file_path} does not exist. Please download it.")
         sys.exit(1)
 
-import gradio as gr
+import gradio as gr # type: ignore
 from indextts.infer_v2 import IndexTTS2
 from tools.i18n.i18n import I18nAuto
 
