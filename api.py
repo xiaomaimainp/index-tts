@@ -7,10 +7,11 @@ import os
 import sys
 import uuid
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import argparse
+import shutil
 
 # 添加项目路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -231,6 +232,134 @@ async def create_tts_task(request: TTSRequest, background_tasks: BackgroundTasks
             raise HTTPException(status_code=500, detail=f"Failed to generate audio: {str(e)}")
     
     # 异步处理模式
+    tasks[task_id] = {
+        "status": "pending",
+        "message": "Task created, waiting to be processed",
+        "result_path": None
+    }
+    
+    # 在后台处理任务
+    background_tasks.add_task(process_tts_task, task_id, request)
+    
+    return TaskStatus(
+        task_id=task_id,
+        status=tasks[task_id]["status"],
+        message=tasks[task_id]["message"],
+        result_path=tasks[task_id]["result_path"]
+    )
+
+@app.post("/api/v1/tts/tasks/upload", response_model=TaskStatus)
+async def create_tts_task_with_upload(
+    text: str = Form(...),
+    prompt_audio: UploadFile = File(...),
+    emo_ref_audio: Optional[UploadFile] = File(None),
+    return_audio: bool = Form(False),
+    emo_control_method: int = Form(0),
+    emo_weight: float = Form(0.65),
+    emo_text: Optional[str] = Form(None),
+    emo_random: bool = Form(False),
+    max_text_tokens_per_segment: int = Form(120),
+    do_sample: bool = Form(True),
+    top_p: float = Form(0.8),
+    top_k: int = Form(30),
+    temperature: float = Form(0.8),
+    length_penalty: float = Form(0.0),
+    num_beams: int = Form(3),
+    repetition_penalty: float = Form(10.0),
+    max_mel_tokens: int = Form(1500),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    通过上传音频文件创建一个新的TTS任务
+    """
+    # 保存上传的音色参考音频文件
+    prompt_audio_path = os.path.join("prompts", f"{uuid.uuid4()}_{prompt_audio.filename}")
+    with open(prompt_audio_path, "wb") as buffer:
+        shutil.copyfileobj(prompt_audio.file, buffer)
+    
+    # 保存上传的情感参考音频文件（如果提供）
+    emo_ref_path = None
+    if emo_ref_audio:
+        emo_ref_path = os.path.join("prompts", f"{uuid.uuid4()}_{emo_ref_audio.filename}")
+        with open(emo_ref_path, "wb") as buffer:
+            shutil.copyfileobj(emo_ref_audio.file, buffer)
+    
+    # 构造TTS请求对象
+    request = TTSRequest(
+        text=text,
+        prompt_audio=prompt_audio_path,
+        return_audio=return_audio,
+        emo_control_method=emo_control_method,
+        emo_ref_path=emo_ref_path,
+        emo_weight=emo_weight,
+        emo_text=emo_text,
+        emo_vec=None,  # 上传文件模式不支持直接传递情感向量
+        emo_random=emo_random,
+        max_text_tokens_per_segment=max_text_tokens_per_segment,
+        do_sample=do_sample,
+        top_p=top_p,
+        top_k=top_k,
+        temperature=temperature,
+        length_penalty=length_penalty,
+        num_beams=num_beams,
+        repetition_penalty=repetition_penalty,
+        max_mel_tokens=max_mel_tokens
+    )
+    
+    # 如果需要直接返回音频
+    if request.return_audio:
+        try:
+            task_id = str(uuid.uuid4())
+            output_path = os.path.join("outputs/tasks", f"{task_id}.wav")
+            
+            # 准备参数
+            kwargs = {
+                "do_sample": request.do_sample,
+                "top_p": request.top_p,
+                "top_k": request.top_k if request.top_k > 0 else None,
+                "temperature": request.temperature,
+                "length_penalty": request.length_penalty,
+                "num_beams": request.num_beams,
+                "repetition_penalty": request.repetition_penalty,
+                "max_mel_tokens": request.max_mel_tokens,
+            }
+            
+            # 处理情感控制参数
+            emo_vector = None
+            if request.emo_control_method == 2 and request.emo_vec:
+                emo_vector = tts.normalize_emo_vec(request.emo_vec, apply_bias=True)
+            
+            if request.emo_text == "":
+                request.emo_text = None
+            
+            # 调用TTS推理
+            tts.infer(
+                spk_audio_prompt=request.prompt_audio,
+                text=request.text,
+                output_path=output_path,
+                emo_audio_prompt=request.emo_ref_path,
+                emo_alpha=request.emo_weight,
+                emo_vector=emo_vector,
+                use_emo_text=(request.emo_control_method == 3),
+                emo_text=request.emo_text,
+                use_random=request.emo_random,
+                max_text_tokens_per_segment=request.max_text_tokens_per_segment,
+                **kwargs
+            )
+            
+            # 返回音频文件
+            return FileResponse(output_path, media_type='audio/wav', filename=f"{task_id}.wav")
+            
+        except Exception as e:
+            # 清理上传的文件
+            if os.path.exists(prompt_audio_path):
+                os.remove(prompt_audio_path)
+            if emo_ref_path and os.path.exists(emo_ref_path):
+                os.remove(emo_ref_path)
+            raise HTTPException(status_code=500, detail=f"Failed to generate audio: {str(e)}")
+    
+    # 异步处理模式
+    task_id = str(uuid.uuid4())
     tasks[task_id] = {
         "status": "pending",
         "message": "Task created, waiting to be processed",

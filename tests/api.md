@@ -88,7 +88,73 @@ curl -X POST "http://localhost:8000/api/v1/tts/tasks" \
 }
 ```
 
-### 2. 创建 TTS 任务（GET 方式）
+### 2. 创建 TTS 任务（通过上传音频文件）
+
+**接口地址**: `POST /api/v1/tts/tasks/upload`
+
+该接口允许通过上传音频文件作为参考音频来创建 TTS 任务，适用于没有本地文件访问权限的客户端。
+
+**请求头**: `Content-Type: multipart/form-data`
+
+**请求参数**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| text | string | 是 | - | 要合成的文本 |
+| prompt_audio | file | 是 | - | 音色参考音频文件 |
+| emo_ref_audio | file | 否 | null | 情感参考音频文件 |
+| return_audio | boolean | 否 | false | 是否直接返回音频 |
+| emo_control_method | integer | 否 | 0 | 情感控制方法 (0: 与说话人相同, 1: 来自参考音频, 2: 来自向量, 3: 来自文本) |
+| emo_weight | float | 否 | 0.65 | 情感权重 |
+| emo_text | string | 否 | null | 情感描述文本 |
+| emo_random | boolean | 否 | false | 是否使用随机情感 |
+| max_text_tokens_per_segment | integer | 否 | 120 | 每段最大文本 token 数 |
+| do_sample | boolean | 否 | true | 是否采样 |
+| top_p | float | 否 | 0.8 | 核采样参数 |
+| top_k | integer | 否 | 30 | top-k 采样参数 |
+| temperature | float | 否 | 0.8 | 温度参数 |
+| length_penalty | float | 否 | 0.0 | 长度惩罚 |
+| num_beams | integer | 否 | 3 | beam search 数量 |
+| repetition_penalty | float | 否 | 10.0 | 重复惩罚 |
+| max_mel_tokens | integer | 否 | 1500 | 最大 mel token 数 |
+
+**请求示例**:
+
+```bash
+# 异步任务模式
+curl -X POST "http://localhost:8000/api/v1/tts/tasks/upload" \
+     -F "text=你好，欢迎使用 IndexTTS 语音合成系统" \
+     -F "prompt_audio=@path/to/speaker.wav" \
+     -F "return_audio=false"
+
+# 直接返回音频模式
+curl -X POST "http://localhost:8000/api/v1/tts/tasks/upload" \
+     -F "text=你好，欢迎使用 IndexTTS 语音合成系统" \
+     -F "prompt_audio=@path/to/speaker.wav" \
+     -F "return_audio=true" \
+     --output result.wav
+
+# 使用情感参考音频
+curl -X POST "http://localhost:8000/api/v1/tts/tasks/upload" \
+     -F "text=你好，欢迎使用 IndexTTS 语音合成系统" \
+     -F "prompt_audio=@path/to/speaker.wav" \
+     -F "emo_ref_audio=@path/to/emotion.wav" \
+     -F "emo_control_method=1" \
+     --output result.wav
+```
+
+**响应示例**:
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending",
+  "message": "Task created, waiting to be processed",
+  "result_path": null
+}
+```
+
+### 3. 创建 TTS 任务（GET 方式）
 
 **接口地址**: `GET /api/v1/tts/tasks`
 
@@ -108,7 +174,7 @@ curl "http://localhost:8000/api/v1/tts/tasks?text=你好，欢迎使用IndexTTS&
      -o result.wav
 ```
 
-### 3. 查询任务状态
+### 4. 查询任务状态
 
 **接口地址**: `GET /api/v1/tts/tasks/{task_id}`
 
@@ -129,7 +195,7 @@ curl "http://localhost:8000/api/v1/tts/tasks/550e8400-e29b-41d4-a716-44665544000
 }
 ```
 
-### 4. 获取任务结果
+### 5. 获取任务结果
 
 **接口地址**: `GET /api/v1/tts/tasks/{task_id}/result`
 
